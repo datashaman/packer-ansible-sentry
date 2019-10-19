@@ -1,0 +1,4 @@
+{
+    "venv": "/www/sentry",
+    "conf": "/etc/sentry"
+}

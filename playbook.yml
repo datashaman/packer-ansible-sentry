@@ -1,0 +1,111 @@
+---
+- name: Sentry
+  hosts: all
+  vars_files:
+      - config.json
+      - secrets.json
+  tasks:
+      - name: Upgrading system
+        apt:
+            update_cache: yes
+            upgrade: dist
+            dpkg_options: 'force-confold,force-confdef'
+
+      - name: Installing packages
+        apt:
+            name: "{{ packages }}"
+        vars:
+            packages:
+                - build-essential
+                - libffi-dev
+                - libjpeg-dev
+                - libpq-dev
+                - libssl-dev
+                - libxml2-dev
+                - libxslt1-dev
+                - libxslt-dev
+                - libyaml-dev
+                - openssl
+                - postgresql
+                - postgresql-contrib
+                - python2.7
+                - python-dev
+                - python-psycopg2
+                - python-setuptools
+                - python3-psycopg2
+                - redis-server
+                - vim
+                - virtualenv
+
+      - name: Starting postgresql
+        service: name=postgresql state=started enabled=yes
+
+      - name: Starting redis-server
+        service: name=redis-server state=started enabled=yes
+
+      - name: Creating database
+        become: yes
+        become_user: postgres
+        postgresql_db: name={{ db_name }}
+            encoding='UTF-8'
+            lc_collate='en_US.UTF-8'
+            lc_ctype='en_US.UTF-8'
+            template='template0'
+            state=present
+
+      - name: Creating database user
+        become: yes
+        become_user: postgres
+        postgresql_user: db={{ db_name }}
+            name={{ db_user }}
+            password={{ db_password }}
+            priv=ALL
+            state=present
+
+      - name: Installing sentry
+        pip:
+            name:
+                - sentry
+            virtualenv: "{{ venv }}"
+            virtualenv_python: python2.7
+
+      - name: Creating sentry config folder
+        file: path=/etc/sentry state=directory
+
+      - name: Configuring sentry
+        template:
+            src: "{{ item.src }}"
+            dest: "{{ item.dest }}"
+        with_items:
+            - {src: 'templates/sentry.conf.py.j2', dest: '/etc/sentry/sentry.conf.py'}
+            - {src: 'templates/config.yml.j2', dest: '/etc/sentry/config.yml'}
+
+      - name: Upgrading sentry
+        become: yes
+        become_user: postgres
+        command: "{{ venv }}/bin/sentry upgrade --noinput"
+        environment:
+            SENTRY_CONF: /etc/sentry
+
+      - name: Modifying database user permissions
+        become: yes
+        become_user: postgres
+        postgresql_user: name={{ db_user }}
+            role_attr_flags=NOSUPERUSER,NOCREATEDB
+            state=present
+
+      - name: Creating sentry superuser
+        command: "{{ venv }}/bin/sentry createuser --email {{ sentry_email }} --password {{ sentry_password }} --superuser --no-input"
+        environment:
+            SENTRY_CONF: /etc/sentry
+
+      - name: Configuring sentry systemd services
+        template:
+            src: "{{ item.src }}"
+            dest: "{{ item.dest }}"
+            mode: "{{ item.mode }}"
+        with_items:
+            - {src: 'templates/sentry-web.service.j2', dest: '/etc/systemd/system/sentry-web.service', mode: 0660}
+            - {src: 'templates/sentry-worker.service.j2', dest: '/etc/systemd/system/sentry-worker.service', mode: 0660}
+            - {src: 'templates/sentry-cron.service.j2', dest: '/etc/systemd/system/sentry-cron.service', mode: 0660}
+            - {src: 'templates/daily.sh', dest: '/etc/cron.daily/sentry.sh', mode: 0770}
