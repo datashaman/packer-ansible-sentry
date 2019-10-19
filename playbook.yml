@@ -1,4 +1,9 @@
 ---
+- name: DigitalOcean Agent
+  become: yes
+  hosts: all
+  roles:
+      - andrewsomething.do-agent
 - name: Sentry
   hosts: all
   vars_files:
@@ -60,32 +65,38 @@
             name={{ db_user }}
             password={{ db_password }}
             priv=ALL
+            role_attr_flags=SUPERUSER
             state=present
 
-      - name: Installing sentry
+      - name: Installing maxminddb and sentry
         pip:
             name:
+                - maxminddb
                 - sentry
             virtualenv: "{{ venv }}"
             virtualenv_python: python2.7
 
       - name: Creating sentry config folder
-        file: path=/etc/sentry state=directory
+        file: path={{ conf }} state=directory
+
+      - name: Installing GEOIP database
+        unarchive:
+            src: https://geolite.maxmind.com/download/geoip/database/GeoLite2-City_20191015.tar.gz
+            remote_src: yes
+            dest: "{{ conf }}"
 
       - name: Configuring sentry
         template:
             src: "{{ item.src }}"
             dest: "{{ item.dest }}"
         with_items:
-            - {src: 'templates/sentry.conf.py.j2', dest: '/etc/sentry/sentry.conf.py'}
-            - {src: 'templates/config.yml.j2', dest: '/etc/sentry/config.yml'}
+            - {src: 'templates/sentry.conf.py.j2', dest: "{{ conf }}/sentry.conf.py"}
+            - {src: 'templates/config.yml.j2', dest: "{{ conf }}/config.yml"}
 
       - name: Upgrading sentry
-        become: yes
-        become_user: postgres
         command: "{{ venv }}/bin/sentry upgrade --noinput"
         environment:
-            SENTRY_CONF: /etc/sentry
+            SENTRY_CONF: "{{ conf }}"
 
       - name: Modifying database user permissions
         become: yes
@@ -97,7 +108,7 @@
       - name: Creating sentry superuser
         command: "{{ venv }}/bin/sentry createuser --email {{ sentry_email }} --password {{ sentry_password }} --superuser --no-input"
         environment:
-            SENTRY_CONF: /etc/sentry
+            SENTRY_CONF: "{{ conf }}"
 
       - name: Configuring sentry systemd services
         template:
@@ -108,4 +119,4 @@
             - {src: 'templates/sentry-web.service.j2', dest: '/etc/systemd/system/sentry-web.service', mode: 0660}
             - {src: 'templates/sentry-worker.service.j2', dest: '/etc/systemd/system/sentry-worker.service', mode: 0660}
             - {src: 'templates/sentry-cron.service.j2', dest: '/etc/systemd/system/sentry-cron.service', mode: 0660}
-            - {src: 'templates/daily.sh', dest: '/etc/cron.daily/sentry.sh', mode: 0770}
+            - {src: 'templates/cron-daily.sh', dest: '/etc/cron.daily/sentry.sh', mode: 0770}

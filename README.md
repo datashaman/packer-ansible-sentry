@@ -8,6 +8,12 @@ Copy `secrets.json.example` to `secrets.json` and edit to your taste.
 
 Copy `.env.example` to `.env` and edit to your taste.
 
+## install dependencies
+
+Ansible Galaxy requirements:
+
+    ansible-galaxy install -r requirements.yml
+
 ## build
 
 Build a DigitalOcean snapshot image:
